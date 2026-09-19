@@ -158,6 +158,42 @@ def _build_asgi_app():
         """Daily summary stats: calories, distance, floors, stress, for a date."""
         return _client().get_stats(date)
 
+    @mcp.tool()
+    def get_cycle_tracking(date: str) -> dict:
+        """Menstrual cycle phase and fertile window status for a date (YYYY-MM-DD), if cycle tracking is enabled in Garmin Connect."""
+        try:
+            data = _client().get_menstrual_data_for_date(date)
+        except Exception:
+            return {"trackingEnabled": False}
+        summary = (data or {}).get("daySummary") or {}
+        day_in_cycle = summary.get("dayInCycle")
+        if day_in_cycle is None:
+            return {"trackingEnabled": False}
+        period_length = summary.get("periodLength") or 0
+        fertile_start = summary.get("fertileWindowStart")
+        fertile_length = summary.get("lengthOfFertileWindow") or 0
+        # Garmin's own "currentPhase" field is an undocumented numeric enum
+        # -- rather than guess what each value means, the phase name here is
+        # derived from the day-in-cycle/period-length/fertile-window fields,
+        # whose meaning is given directly by their names.
+        if day_in_cycle <= period_length:
+            phase = "menstrual"
+        elif fertile_start is not None and fertile_start <= day_in_cycle < fertile_start + fertile_length:
+            phase = "fertile_window"
+        elif fertile_start is not None and day_in_cycle < fertile_start:
+            phase = "follicular"
+        else:
+            phase = "luteal"
+        return {
+            "trackingEnabled": True,
+            "dayInCycle": day_in_cycle,
+            "phase": phase,
+            "periodLength": summary.get("periodLength"),
+            "predictedCycleLength": summary.get("predictedCycleLength"),
+            "daysUntilNextPhase": summary.get("daysUntilNextPhase"),
+            "cycleType": summary.get("cycleType"),
+        }
+
     return mcp.streamable_http_app()
 
 
