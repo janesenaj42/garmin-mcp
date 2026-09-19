@@ -92,20 +92,3 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
 Garmin's tokens last ~1 year; re-run step 1 and update `GARMIN_TOKENS`
 when they expire (garminconnect will start raising authentication errors,
 visible in CloudWatch logs, once that happens).
-
-## Putting this in your own GitHub repo
-
-This folder is a ready-to-push repo. On GitHub, create a new **empty**
-repository (no README/license), then from this folder:
-
-```
-git init
-git add .
-git commit -m "garmin-mcp: initial version"
-git branch -M main
-git remote add origin git@github.com:<you>/garmin-mcp.git
-git push -u origin main
-```
-
-`.gitignore` already excludes `build/`, `function.zip`, and
-`garmin_tokens.json` so you never accidentally commit your tokens.
