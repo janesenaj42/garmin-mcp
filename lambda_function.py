@@ -12,11 +12,12 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 API_KEY = os.environ["API_KEY"]
+EXPECTED_AUTH_HEADER = f"Bearer {API_KEY}".encode()
 # Bare hostname of your Function URL, e.g. abc123xyz.lambda-url.ap-southeast-2.on.aws
 # (no scheme, no path) -- FastMCP rejects any request whose Host header isn't
-# on this list as a DNS-rebinding defense. The API_KEY path-segment check above
-# already gates every request, so this is a second, narrower layer, not the
-# only one.
+# on this list as a DNS-rebinding defense. The Authorization header check
+# below already gates every request, so this is a second, narrower layer,
+# not the only one.
 ALLOWED_HOST = os.environ["ALLOWED_HOST"]
 
 _client_cache = None
@@ -174,19 +175,20 @@ async def app(scope, receive, send):
         return
 
     # Shared-secret gate: a Lambda Function URL with auth-type NONE is
-    # otherwise reachable by anyone who has the URL, and Claude's "Add
-    # custom connector" dialog has no custom-header field, so the secret
-    # travels as a URL path segment instead:
-    #   give Claude https://<function-url>/<API_KEY>/mcp
-    path = scope.get("path", "")
-    segments = path.split("/", 2)  # ["", "<key>", "mcp..."]
-    got_key = segments[1] if len(segments) > 1 else ""
-    if not hmac.compare_digest(got_key, API_KEY):
+    # otherwise reachable by anyone who has the URL. Claude's "Add custom
+    # connector" dialog has a Request headers field for exactly this case
+    # (an API key instead of OAuth), so the secret travels as a normal
+    # Authorization header rather than sitting in the URL where it could
+    # end up in browser history or incidental logging.
+    got_auth = b""
+    for name, value in scope.get("headers") or []:
+        if name == b"authorization":
+            got_auth = value
+            break
+    if not hmac.compare_digest(got_auth, EXPECTED_AUTH_HEADER):
         await send({"type": "http.response.start", "status": 401, "headers": []})
         await send({"type": "http.response.body", "body": b"unauthorized"})
         return
-    scope = dict(scope)
-    scope["path"] = "/" + segments[2] if len(segments) > 2 else "/"
     await _asgi_app(scope, receive, send)
 
 

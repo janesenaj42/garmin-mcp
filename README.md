@@ -67,26 +67,30 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
      just the hostname from step 5's URL (no `https://`, no trailing slash),
      e.g. `abc123.lambda-url.us-east-1.on.aws`
    - FastMCP rejects any request whose `Host` header isn't on this list (DNS
-     rebinding protection) -- it's a second layer on top of the `API_KEY`
-     check, not a replacement for it.
+     rebinding protection) -- it's a second layer on top of the `Authorization`
+     header check, not a replacement for it.
 
 7. **Test it before wiring it into Claude**
    ```
-   curl -s -X POST "https://<your-function-url>/<your-API_KEY>/mcp" \
+   curl -s -X POST "https://<your-function-url>mcp" \
      -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" \
+     -H "Authorization: Bearer <your-API_KEY>" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
    ```
    Expect a JSON-RPC response listing 6 tools. If you get `401`, the
-   API_KEY in the URL doesn't match the env var. If you get `421`, the
-   `ALLOWED_HOST` value doesn't match your Function URL's hostname. If you
-   get a 5xx or timeout, check **Monitor > View CloudWatch logs** on the
-   Lambda console for the actual error.
+   `Authorization` header doesn't match the `API_KEY` env var. If you get
+   `421`, the `ALLOWED_HOST` value doesn't match your Function URL's
+   hostname. If you get a 5xx or timeout, check **Monitor > View CloudWatch
+   logs** on the Lambda console for the actual error.
 
 8. **Connect it to Claude**
    - claude.ai > Settings > Connectors > Add custom connector
-   - URL: `<function-url><API_KEY>/mcp` (your Function URL + API_KEY + `/mcp`,
-     e.g. `https://abc123.lambda-url.us-east-1.on.aws/a1b2c3.../mcp`)
+   - URL: `<function-url>mcp` (your Function URL + `mcp`, e.g.
+     `https://abc123.lambda-url.us-east-1.on.aws/mcp`) -- no secret in the
+     URL itself
+   - Under **Request headers**, add: name `Authorization`, value
+     `Bearer <your-API_KEY>`
    - Leave OAuth fields blank > Add
 
 Garmin's tokens last ~1 year; re-run step 1 and update `GARMIN_TOKENS`
