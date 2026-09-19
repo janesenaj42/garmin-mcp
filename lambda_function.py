@@ -12,12 +12,12 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 API_KEY = os.environ["API_KEY"]
-EXPECTED_AUTH_HEADER = f"Bearer {API_KEY}".encode()
+EXPECTED_API_KEY = API_KEY.encode()
 # Bare hostname of your Function URL, e.g. abc123xyz.lambda-url.ap-southeast-2.on.aws
 # (no scheme, no path) -- FastMCP rejects any request whose Host header isn't
-# on this list as a DNS-rebinding defense. The Authorization header check
-# below already gates every request, so this is a second, narrower layer,
-# not the only one.
+# on this list as a DNS-rebinding defense. The X-Api-Key header check below
+# already gates every request, so this is a second, narrower layer, not the
+# only one.
 ALLOWED_HOST = os.environ["ALLOWED_HOST"]
 
 _client_cache = None
@@ -177,15 +177,16 @@ async def app(scope, receive, send):
     # Shared-secret gate: a Lambda Function URL with auth-type NONE is
     # otherwise reachable by anyone who has the URL. Claude's "Add custom
     # connector" dialog has a Request headers field for exactly this case
-    # (an API key instead of OAuth), so the secret travels as a normal
-    # Authorization header rather than sitting in the URL where it could
-    # end up in browser history or incidental logging.
-    got_auth = b""
+    # (an API key instead of OAuth), so the secret travels as a custom
+    # header rather than sitting in the URL where it could end up in
+    # browser history or incidental logging. Not "Authorization" -- Claude
+    # blocks that one as a reserved/OAuth-managed header name.
+    got_key = b""
     for name, value in scope.get("headers") or []:
-        if name == b"authorization":
-            got_auth = value
+        if name == b"x-api-key":
+            got_key = value
             break
-    if not hmac.compare_digest(got_auth, EXPECTED_AUTH_HEADER):
+    if not hmac.compare_digest(got_key, EXPECTED_API_KEY):
         await send({"type": "http.response.start", "status": 401, "headers": []})
         await send({"type": "http.response.body", "body": b"unauthorized"})
         return

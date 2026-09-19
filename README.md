@@ -67,7 +67,7 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
      just the hostname from step 5's URL (no `https://`, no trailing slash),
      e.g. `abc123.lambda-url.us-east-1.on.aws`
    - FastMCP rejects any request whose `Host` header isn't on this list (DNS
-     rebinding protection) -- it's a second layer on top of the `Authorization`
+     rebinding protection) -- it's a second layer on top of the `X-Api-Key`
      header check, not a replacement for it.
 
 7. **Test it before wiring it into Claude**
@@ -75,11 +75,11 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
    curl -s -X POST "https://<your-function-url>mcp" \
      -H "Content-Type: application/json" \
      -H "Accept: application/json, text/event-stream" \
-     -H "Authorization: Bearer <your-API_KEY>" \
+     -H "X-Api-Key: <your-API_KEY>" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
    ```
    Expect a JSON-RPC response listing 6 tools. If you get `401`, the
-   `Authorization` header doesn't match the `API_KEY` env var. If you get
+   `X-Api-Key` header doesn't match the `API_KEY` env var. If you get
    `421`, the `ALLOWED_HOST` value doesn't match your Function URL's
    hostname. If you get a 5xx or timeout, check **Monitor > View CloudWatch
    logs** on the Lambda console for the actual error.
@@ -89,8 +89,9 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
    - URL: `<function-url>mcp` (your Function URL + `mcp`, e.g.
      `https://abc123.lambda-url.us-east-1.on.aws/mcp`) -- no secret in the
      URL itself
-   - Under **Request headers**, add: name `Authorization`, value
-     `Bearer <your-API_KEY>`
+   - Under **Request headers**, add: name `X-Api-Key`, value
+     `<your-API_KEY>` (not `Authorization` -- Claude blocks that name as
+     reserved for OAuth)
    - Leave OAuth fields blank > Add
 
 Garmin's tokens last ~1 year; re-run step 1 and update `GARMIN_TOKENS`
