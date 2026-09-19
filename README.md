@@ -89,10 +89,17 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
    - URL: `<function-url>mcp` (your Function URL + `mcp`, e.g.
      `https://abc123.lambda-url.us-east-1.on.aws/mcp`) -- no secret in the
      URL itself
+   - **Authentication: select "No sign-in"** ("for servers that use an API
+     key instead of OAuth"). Claude auto-detects "Sign in now" by default
+     for any server that returns a 401 to an unauthenticated probe, and in
+     that mode Request headers are sent *alongside* an OAuth handshake, not
+     instead of it -- this server has no OAuth support at all, so it'll
+     fail to connect ("Couldn't register with garmin-mcp's sign-in
+     service") until you switch this.
    - Under **Request headers**, add: name `X-Api-Key`, value
      `<your-API_KEY>` (not `Authorization` -- Claude blocks that name as
      reserved for OAuth)
-   - Leave OAuth fields blank > Add
+   - Add
 
 Garmin's tokens last ~1 year; re-run step 1 and update `GARMIN_TOKENS`
 when they expire (garminconnect will start raising authentication errors,
