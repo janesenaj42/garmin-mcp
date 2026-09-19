@@ -1,0 +1,3 @@
+garminconnect==0.3.16
+mcp==1.30.0
+mangum
