@@ -174,6 +174,19 @@ async def app(scope, receive, send):
         await _asgi_app(scope, receive, send)
         return
 
+    # MCP clients (Claude included) probe OAuth-discovery paths like
+    # /.well-known/oauth-authorization-server and /register when adding a
+    # connector, to decide whether OAuth is available -- independent of any
+    # header-based auth configured for the actual tool-call endpoint. Let
+    # these fall through to FastMCP's app (which doesn't define them, so
+    # they 404 cleanly) instead of the API-key gate below: a blanket 401
+    # here reads as "OAuth is required" and sends the client down a doomed
+    # dynamic-client-registration attempt instead of just using X-Api-Key.
+    path = scope.get("path", "")
+    if path.startswith("/.well-known/") or path == "/register":
+        await _asgi_app(scope, receive, send)
+        return
+
     # Shared-secret gate: a Lambda Function URL with auth-type NONE is
     # otherwise reachable by anyone who has the URL. Claude's "Add custom
     # connector" dialog has a Request headers field for exactly this case
