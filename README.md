@@ -1,9 +1,9 @@
 # garmin-mcp
 
 MCP server exposing your own Garmin Connect data (steps, sleep, heart rate,
-Body Battery, activities, daily stats, menstrual cycle tracking) as tools
-Claude can call, hosted as a single AWS Lambda function with a public
-Function URL.
+Body Battery, activities, daily stats, menstrual cycle tracking, weight)
+as tools Claude can call, hosted as a single AWS Lambda function with a
+public Function URL.
 
 No S3, no SSM, no IAM policy authoring -- your Garmin session tokens live
 only as a Lambda environment variable (encrypted at rest by Lambda's

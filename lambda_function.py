@@ -194,6 +194,17 @@ def _build_asgi_app():
             "cycleType": summary.get("cycleType"),
         }
 
+    @mcp.tool()
+    def get_weight(start_date: str, end_date: str) -> list:
+        """Body weight (kg) readings between start_date and end_date (both YYYY-MM-DD, inclusive)."""
+        data = _client().get_body_composition(start_date, end_date)
+        entries = (data or {}).get("dateWeightList") or []
+        return [
+            {"date": e.get("calendarDate"), "weightKg": round(e["weight"] / 1000, 1)}
+            for e in entries
+            if e.get("weight") is not None
+        ]
+
     return mcp.streamable_http_app()
 
 
