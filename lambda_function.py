@@ -4,8 +4,10 @@ Deploy as a Lambda Function URL; add that URL to Claude as a
 custom connector (Settings > Connectors > Add custom connector).
 """
 import hmac
+import logging
 import os
 
+import boto3
 from garminconnect import Garmin
 from mangum import Mangum
 from mcp.server.fastmcp import FastMCP
@@ -20,21 +22,49 @@ EXPECTED_API_KEY = API_KEY.encode()
 # only one.
 ALLOWED_HOST = os.environ["ALLOWED_HOST"]
 
+# SSM Parameter Store SecureString holding the JSON blob printed by
+# setup_garmin_token.py. Not a plain env var: Garmin rotates the refresh
+# token on every access-token refresh, so the latest one has to be written
+# back somewhere that outlives this container -- an env var would hand every
+# cold start the original, by-then-revoked refresh token.
+TOKEN_PARAM = os.environ.get("GARMIN_TOKEN_PARAM", "/garmin-mcp/tokens")
+
+logger = logging.getLogger()
+_ssm = boto3.client("ssm")
 _client_cache = None
+_saved_tokens = None
 
 
 def _client() -> Garmin:
-    global _client_cache
+    global _client_cache, _saved_tokens
     if _client_cache is not None:
         return _client_cache
+    tokens = _ssm.get_parameter(Name=TOKEN_PARAM, WithDecryption=True)["Parameter"]["Value"]
     g = Garmin()
-    # GARMIN_TOKENS is the JSON blob printed by setup_garmin_token.py, handed
-    # in as a Lambda env var you paste once in the console -- nothing is
-    # fetched from S3, SSM, or anywhere else. Passed inline (not a path), so
-    # no disk access is needed; no password required since it's a live session.
-    g.login(os.environ["GARMIN_TOKENS"])
+    # Passed inline (not a path), so no disk access is needed; no password
+    # required since it's a live session.
+    g.login(tokens)
     _client_cache = g
+    _saved_tokens = tokens
     return g
+
+
+def _persist_tokens() -> None:
+    # The library refreshes tokens transparently mid-request; write them back
+    # only when they actually changed, so most invocations make no SSM call.
+    global _saved_tokens
+    if _client_cache is None:
+        return
+    current = _client_cache.client.dumps()
+    if current == _saved_tokens:
+        return
+    try:
+        _ssm.put_parameter(Name=TOKEN_PARAM, Value=current, Type="SecureString", Overwrite=True)
+        _saved_tokens = current
+    except Exception:
+        # Not fatal for this request -- the refreshed tokens are still live in
+        # this container, and the next invocation retries the write.
+        logger.exception("Failed to save refreshed Garmin tokens to %s", TOKEN_PARAM)
 
 
 def _trim_activity(a: dict) -> dict:
@@ -250,7 +280,10 @@ async def app(scope, receive, send):
         await send({"type": "http.response.start", "status": 401, "headers": []})
         await send({"type": "http.response.body", "body": b"unauthorized"})
         return
-    await _asgi_app(scope, receive, send)
+    try:
+        await _asgi_app(scope, receive, send)
+    finally:
+        _persist_tokens()
 
 
 handler = Mangum(app)

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 Run locally, ONCE, to authenticate with Garmin (prompts for an MFA code if
-2FA is enabled) and print the token blob you paste into the Lambda
-console's environment variable. Nothing is uploaded anywhere by this
+2FA is enabled) and print the token blob you paste into the
+/garmin-mcp/tokens SSM parameter. Nothing is uploaded anywhere by this
 script -- you copy/paste the value yourself.
 
-Garmin's tokens last ~1 year -- re-run this only when they expire or you
-revoke the session (e.g. changing your Garmin password).
+The Lambda saves refreshed tokens back to that parameter on its own, so
+re-run this only if the session is revoked (e.g. you change your Garmin
+password) or the server goes unused long enough for the refresh token
+itself to lapse.
 
 Usage:
     pip install garminconnect
@@ -30,9 +32,10 @@ def main():
     )
     client.login(TOKEN_FILE)  # writes TOKEN_FILE; MFA prompt fires above if needed
 
-    print("\nIn the Lambda console, under Configuration > Environment variables,")
-    print("add this (paste the whole JSON blob as the value):\n")
-    print("--- GARMIN_TOKENS ---")
+    print("\nIn the AWS console, under Systems Manager > Parameter Store, create")
+    print("(or edit) the SecureString parameter /garmin-mcp/tokens and paste this")
+    print("whole JSON blob as its value:\n")
+    print("--- /garmin-mcp/tokens ---")
     with open(TOKEN_FILE) as f:
         print(f.read().strip())
 

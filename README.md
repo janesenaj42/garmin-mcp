@@ -5,10 +5,14 @@ Body Battery, activities, daily stats, cycle tracking, weight)
 as tools Claude can call, hosted as a single AWS Lambda function with a
 public Function URL.
 
-No S3, no SSM, no IAM policy authoring -- your Garmin session tokens live
-only as a Lambda environment variable (encrypted at rest by Lambda's
-default AWS-managed key). Free tier covers personal use (Lambda: 1M
-requests + 400k GB-s/month; Function URLs: no extra charge).
+Your Garmin session tokens live in one SSM Parameter Store SecureString
+(encrypted at rest by the AWS-managed `aws/ssm` key). Garmin rotates the
+refresh token every time the access token is refreshed, so the Lambda
+writes the new tokens back to that parameter whenever they change --
+that's what keeps the session alive without you re-running the login
+script. Free tier covers personal use (Lambda: 1M requests + 400k
+GB-s/month; Function URLs: no extra charge; Parameter Store standard
+parameters: free).
 
 ## Prerequisites
 
@@ -37,7 +41,15 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
    ```
    Either way, it logs into Garmin and prints one JSON blob (also saved
    locally to `garmin_tokens.json`, which `.gitignore` already excludes).
-   Keep it handy -- you'll paste it in step 4.
+
+   In the AWS console, go to **Systems Manager > Parameter Store > Create
+   parameter**:
+   - Name: `/garmin-mcp/tokens`
+   - Tier: Standard, Type: **SecureString**, KMS key: `alias/aws/ssm`
+     (the default)
+   - Value: paste the JSON blob
+
+   Create it in the same region you'll create the Lambda in.
 
 2. **Build the deployment package**
    ```
@@ -54,9 +66,35 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
    - After it's created: Code > Upload from > .zip file > `function.zip`
    - Runtime settings > Handler: `lambda_function.handler`
    - Configuration > General configuration > Timeout: 30 sec
+   - Configuration > Permissions > click the role name > Add permissions >
+     Create inline policy > JSON. Clear the editor and paste the policy
+     below, with `REGION` and `ACCOUNT_ID` replaced by your own values
+     (e.g. `us-east-1` and your 12-digit account ID -- the whole
+     placeholder, no `<>` left over). Paste only the `{ ... }` part, not
+     the ```` ```json ```` fence lines. Save it as `garmin-mcp-tokens`:
+     ```json
+     {
+       "Version": "2012-10-17",
+       "Statement": [{
+         "Effect": "Allow",
+         "Action": ["ssm:GetParameter", "ssm:PutParameter"],
+         "Resource": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/garmin-mcp/tokens"
+       }]
+     }
+     ```
+     "The policy failed legacy parsing" means the JSON didn't parse --
+     usually a leftover placeholder, a pasted fence line, or curly quotes.
+     If your account is in an AWS Organization, the editor may also show
+     an `access-analyzer:ValidatePolicy ... explicit deny in a service
+     control policy` error: that's only the console's policy linter being
+     blocked, not the policy itself -- ignore it and click Next.
+     No KMS permission is needed -- the default `aws/ssm` key already
+     allows use through SSM by roles in your account.
+   - Optional: Configuration > Concurrency > Reserved concurrency: `1`.
+     Two containers refreshing at the same moment could otherwise save a
+     token the other has already rotated out.
 
 4. **Set environment variables** (Configuration > Environment variables)
-   - `GARMIN_TOKENS` -- paste the JSON blob from step 1
    - `API_KEY` -- any random string, e.g. run `openssl rand -hex 16` locally
 
 5. **Turn on a Function URL** (Configuration > Function URL > Create)
@@ -79,7 +117,7 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
      -H "X-Api-Key: <your-API_KEY>" \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
    ```
-   Expect a JSON-RPC response listing 6 tools. If you get `401`, the
+   Expect a JSON-RPC response listing 8 tools. If you get `401`, the
    `X-Api-Key` header doesn't match the `API_KEY` env var. If you get
    `421`, the `ALLOWED_HOST` value doesn't match your Function URL's
    hostname. If you get a 5xx or timeout, check **Monitor > View CloudWatch
@@ -102,6 +140,15 @@ requests + 400k GB-s/month; Function URLs: no extra charge).
      reserved for OAuth)
    - Add
 
-Garmin's tokens last ~1 year; re-run step 1 and update `GARMIN_TOKENS`
-when they expire (garminconnect will start raising authentication errors,
-visible in CloudWatch logs, once that happens).
+The Lambda keeps `/garmin-mcp/tokens` current by itself. If tools start
+failing with `Failed to retrieve social profile` or other authentication
+errors (e.g. you changed your Garmin password, or the server went unused
+long enough for the refresh token to lapse), re-run step 1 and paste the
+new blob over the parameter's value -- no redeploy needed.
+
+### Migrating from the `GARMIN_TOKENS` env var
+
+Earlier versions read tokens from a `GARMIN_TOKENS` environment variable.
+To switch: re-run step 1 and create the parameter, add the IAM policy
+from step 3, upload a freshly built `function.zip`, then delete the
+`GARMIN_TOKENS` environment variable.
